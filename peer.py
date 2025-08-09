@@ -311,6 +311,9 @@ def user_interface():
     prompt = "\nEnter task (word_count, file_count, sha256, line_count, file_metadata, show_peers, exit): "
     while True:
         cmd = input(prompt).strip()
+        if cmd == '':
+            continue
+
         if cmd == "exit":
             break
 
