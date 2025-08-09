@@ -311,7 +311,7 @@ def user_interface():
     prompt = "\nEnter task (word_count, file_count, sha256, line_count, file_metadata, show_peers, exit): "
     while True:
         cmd = input(prompt).strip()
-        if cmd == '':
+        if cmd == "":
             continue
 
         if cmd == "exit":
@@ -346,7 +346,7 @@ def user_interface():
                     f"[SEND] Sending file_metadata for '{file_list[0]}' to {chosen_peer}"
                 )
                 if chosen_peer == MY_ADDR:
-                    print(f"[PROC] Local processing of '{file_list[0]}'")
+                    print(f"\n[PROC] Local processing of '{file_list[0]}'")
                     results[(chosen_peer, file_list[0])] = {
                         "status": "success",
                         "result": get_file_metadata(file_list[0]),
