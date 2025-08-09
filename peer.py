@@ -85,6 +85,7 @@ def send_rpc_call(host, port, request, timeout=5):
             s.settimeout(timeout)
             s.connect((host, port))
             s.sendall(json.dumps(request).encode('utf-8'))
+            # read until socket closes or one large recv (assignment simplicity)
             resp_bytes = s.recv(65536)
             if not resp_bytes:
                 return {'status': 'error', 'message': 'no response'}
@@ -94,7 +95,7 @@ def send_rpc_call(host, port, request, timeout=5):
 
 def register_with_peer(peer):
     host, port = peer
-    print(f"[BOOT] Registering with {peer} ...")
+    # keep feedback but minimal
     resp = send_rpc_call(host, port, {'task': 'register'})
     if resp and resp.get('status') == 'success':
         peers = resp.get('peers', [])
@@ -103,14 +104,11 @@ def register_with_peer(peer):
         with peer_list_lock:
             peer_list.update(new)
             peer_list.add(peer)
-        print(f"[BOOT] Received peers: {new}")
         return True
-    else:
-        print(f"[BOOT] Failed to register with {peer}: {resp.get('message') if resp else resp}")
-        return False
+    return False
 
 # --------------------
-# Gossip
+# Gossip (silent)
 # --------------------
 def ping_peer(peer_addr):
     resp = send_rpc_call(peer_addr[0], peer_addr[1], {'task': 'ping'}, timeout=2)
@@ -119,14 +117,15 @@ def ping_peer(peer_addr):
 def gossip_with_peers():
     while True:
         try:
+            # ping & prune silently
             with peer_list_lock:
                 peers_snapshot = list(peer_list)
             for p in peers_snapshot:
                 if not ping_peer(p):
                     with peer_list_lock:
                         peer_list.discard(p)
-                    print(f"[GOSSIP] Removed unresponsive {p}")
 
+            # optionally try seeds if empty
             with peer_list_lock:
                 empty = len(peer_list) == 0
             if empty and SEED_PEERS:
@@ -134,9 +133,9 @@ def gossip_with_peers():
                     if s != MY_ADDR and ping_peer(s):
                         with peer_list_lock:
                             peer_list.add(s)
-                        print(f"[GOSSIP] Added seed {s}")
                         break
 
+            # gossip with a random peer (exchange known peers) silently
             with peer_list_lock:
                 peers_snapshot = list(peer_list)
             if peers_snapshot:
@@ -147,15 +146,13 @@ def gossip_with_peers():
                     new_peers = {tuple(p) for p in resp.get('peers', [])}
                     new_peers.discard(MY_ADDR)
                     with peer_list_lock:
-                        before = set(peer_list)
                         peer_list.update(new_peers)
-                    if new_peers - before:
-                        print(f"[GOSSIP] Learned peers {new_peers - before}")
                 else:
                     with peer_list_lock:
                         peer_list.discard(target)
-        except Exception as e:
-            print(f"[GOSSIP] error: {e}")
+        except Exception:
+            # silent on gossip thread errors
+            pass
         time.sleep(10)
 
 # --------------------
@@ -184,12 +181,15 @@ def handle_rpc_request(conn, addr):
             sender = (addr[0], addr[1])
 
         # explicit log that receiver got task from sender
-        print(f"[PROC] Received task '{task}' from peer {sender}")
+        if task not in ('ping', 'gossip'):
+            print(f"\n[PROC] Received task '{task}' from peer {sender}")
 
+        # add sender to peer list (silently)
         if sender != MY_ADDR:
             with peer_list_lock:
                 peer_list.add(sender)
 
+        # maintenance tasks
         if task == 'ping':
             conn.sendall(json.dumps({'status': 'success'}).encode('utf-8'))
             return
@@ -211,6 +211,7 @@ def handle_rpc_request(conn, addr):
             conn.sendall(json.dumps({'status': 'success', 'peers': peers_out}).encode('utf-8'))
             return
 
+        # file metadata handling
         if task == 'file_metadata':
             fp = request.get('file_path')
             if not fp:
@@ -222,6 +223,7 @@ def handle_rpc_request(conn, addr):
             conn.sendall(json.dumps({'status': 'success', 'result': res}).encode('utf-8'))
             return
 
+        # generic tasks
         if task in TASKS:
             if task == 'file_count':
                 arg = request.get('directory_path')
@@ -236,13 +238,13 @@ def handle_rpc_request(conn, addr):
     except Exception as e:
         try:
             conn.sendall(json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8'))
-        except:
+        except Exception:
             pass
         print(f"[ERR] in handler: {e}")
     finally:
         try:
             conn.close()
-        except:
+        except Exception:
             pass
 
 def peer_server():
@@ -278,12 +280,14 @@ def user_interface():
             file_list = [p.strip() for p in paths.split(',') if p.strip()]
 
             with peer_list_lock:
+                # include self as a potential worker
                 targets = list(peer_list | {MY_ADDR})
             if not targets:
                 print("No peers available.")
                 continue
 
             results = {}
+            results_lock = threading.Lock()
             threads = []
 
             # Single-file -> pick 1 peer (could be self)
@@ -299,21 +303,26 @@ def user_interface():
             else:
                 # Multiple files -> distribute round-robin across targets (including self)
                 print(f"[SEND] Distributing {len(file_list)} files among {len(targets)} peers...")
-                for i, fp in enumerate(file_list):
-                    peer = targets[i % len(targets)]
-                    def query_peer(p=peer, fpath=fp):
+                def query_peer(p, fpath):
+                    try:
                         print(f"[SEND] {fpath} -> {p}")
                         if p == MY_ADDR:
-                            results[(p, fpath)] = {'status': 'success', 'result': get_file_metadata(fpath)}
+                            res = {'status': 'success', 'result': get_file_metadata(fpath)}
                         else:
-                            resp = send_rpc_call(p[0], p[1], {'task': 'file_metadata', 'file_path': fpath})
-                            results[(p, fpath)] = resp
-                    t = threading.Thread(target=query_peer)
+                            res = send_rpc_call(p[0], p[1], {'task': 'file_metadata', 'file_path': fpath})
+                    except Exception as e:
+                        res = {'status': 'error', 'message': str(e)}
+                    with results_lock:
+                        results[(p, fpath)] = res
+
+                for i, fp in enumerate(file_list):
+                    peer = targets[i % len(targets)]
+                    t = threading.Thread(target=query_peer, args=(peer, fp), daemon=True)
                     threads.append(t)
                     t.start()
 
-            for t in threads:
-                t.join()
+                for t in threads:
+                    t.join()
 
             # print collected results
             for (peer, fpath), resp in results.items():
