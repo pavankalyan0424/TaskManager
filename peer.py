@@ -230,6 +230,9 @@ def handle_rpc_request(conn, addr):
         # file_metadata: compute metadata for given file path on the receiver
         if task == 'file_metadata':
             fp = request.get('file_path')
+            if not fp:
+                conn.sendall(json.dumps({'status': 'error', 'message': 'No file path provided'}).encode('utf-8'))
+                return
             print(f"[PROC] file_metadata request for '{fp}' from {sender}")
             res = get_file_metadata(fp)
             conn.sendall(json.dumps({'status': 'success', 'result': res}).encode('utf-8'))
