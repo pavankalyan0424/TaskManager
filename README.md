@@ -1,4 +1,4 @@
-# Task Manager
+# Peer Tasker
 
 >> This project implements a Peer to Peer (P2P) network that supports distributed file metadata queries via RPC calls. It uses a simple gossip protocol to maintain an up-to-date list of peers and a shared secret for basic authentication.
 
