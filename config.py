@@ -2,8 +2,8 @@
 Module for Storing configs
 """
 
-# Shared secret token for authentication among peers
+# Shared Authentication Token
 AUTH_TOKEN = "supersecret123"
 
-# Gossip & Network Settings
+# Gossip timeout between each interval
 GOSSIP_INTERVAL_SECONDS = 10

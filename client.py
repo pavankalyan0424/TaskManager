@@ -1,6 +1,7 @@
 """
 Module Client.py
 """
+
 import json
 import random
 import socket
@@ -10,6 +11,17 @@ from config import GOSSIP_INTERVAL_SECONDS
 
 
 def send_rpc_call(host, port, request, auth_token, my_addr, timeout=5):
+    """
+    Method to send RPC call
+    :param host:
+    :param port:
+    :param request:
+    :param auth_token:
+    :param my_addr:
+    :param timeout:
+    :return:
+    """
+    # For now we are adding basic authentication token, but later we can add additional security
     if "sender" not in request and my_addr is not None:
         request["sender"] = [my_addr[0], my_addr[1]]
     request["auth_token"] = auth_token
@@ -19,7 +31,7 @@ def send_rpc_call(host, port, request, auth_token, my_addr, timeout=5):
             s.settimeout(timeout)
             s.connect((host, port))
             s.sendall(json.dumps(request).encode("utf-8"))
-            # read until socket closes or one large recv (assignment simplicity)
+            # For now, we are reading only large input
             resp_bytes = s.recv(65536)
             if not resp_bytes:
                 return {"status": "error", "message": "no response"}
@@ -29,8 +41,16 @@ def send_rpc_call(host, port, request, auth_token, my_addr, timeout=5):
 
 
 def register_with_peer(peer, peer_list, peer_list_lock, my_addr, auth_token):
+    """
+    Method to register with peer
+    :param peer:
+    :param peer_list:
+    :param peer_list_lock:
+    :param my_addr:
+    :param auth_token:
+    :return:
+    """
     host, port = peer
-    # keep feedback but minimal
     resp = send_rpc_call(host, port, {"task": "register"}, auth_token, my_addr)
     if resp and resp.get("status") == "success":
         peers = resp.get("peers", [])
@@ -43,10 +63,14 @@ def register_with_peer(peer, peer_list, peer_list_lock, my_addr, auth_token):
     return False
 
 
-# --------------------
-# Gossip (silent)
-# --------------------
 def ping_peer(peer_addr, auth_token, my_addr):
+    """
+    Method to ping peer
+    :param peer_addr:
+    :param auth_token:
+    :param my_addr:
+    :return:
+    """
     resp = send_rpc_call(
         peer_addr[0], peer_addr[1], {"task": "ping"}, auth_token, my_addr, timeout=2
     )
@@ -54,6 +78,15 @@ def ping_peer(peer_addr, auth_token, my_addr):
 
 
 def gossip_with_peers(peer_list, peer_list_lock, my_addr, seed_peers, auth_token):
+    """
+    Method to gossip with peers
+    :param peer_list:
+    :param peer_list_lock:
+    :param my_addr:
+    :param seed_peers:
+    :param auth_token:
+    :return:
+    """
     while True:
         try:
             with peer_list_lock:

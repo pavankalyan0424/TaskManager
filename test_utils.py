@@ -1,6 +1,10 @@
+"""
+Module test utils
+"""
+
 import os
 import pytest
-from peer import count_words, line_count, sha256_checksum, get_file_metadata
+from tasks import count_words, line_count, sha256_checksum, get_file_metadata
 
 
 @pytest.fixture(scope="module")

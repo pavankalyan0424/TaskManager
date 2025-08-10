@@ -1,6 +1,7 @@
 """
 Module Server.py
 """
+
 import json
 import logging
 import socket
@@ -13,13 +14,24 @@ logger = logging.getLogger(__name__)
 
 
 def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_token):
+    """
+    Method to handle RPC requests
+    :param conn:
+    :param addr:
+    :param peer_list:
+    :param peer_list_lock:
+    :param my_addr:
+    :param auth_token:
+    :return:
+    """
     try:
         data = conn.recv(65536)
         if not data:
             return
         request = json.loads(data.decode("utf-8"))
 
-        # auth check
+        # authentication check
+        # Logic: We check if shared auth token is present or not
         if request.get("auth_token") != auth_token:
             conn.sendall(
                 json.dumps({"status": "error", "message": "Auth failed"}).encode(
@@ -38,7 +50,8 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
         if not sender:
             sender = (addr[0], addr[1])
 
-        # explicit log that receiver got task from sender
+        # Log each task
+        # Currently, we are silencing ping and gossip mode
         if task not in ("ping", "gossip"):
             logger.info(f"\n[PROC] Received task '{task}' from peer {sender}")
 
@@ -47,11 +60,12 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
             with peer_list_lock:
                 peer_list.add(sender)
 
-        # maintenance tasks
+        # Heart beat ping
         if task == "ping":
             conn.sendall(json.dumps({"status": "success"}).encode("utf-8"))
             return
 
+        # Task for registering peers
         if task == "register":
             with peer_list_lock:
                 peer_list.add(sender)
@@ -61,6 +75,8 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
             )
             return
 
+        # Task - gossip
+        # To check if peers are active or and remove any inactive peers
         if task == "gossip":
             incoming = request.get("known_peers", [])
             incoming_set = {tuple(p) for p in incoming}
@@ -73,7 +89,9 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
             )
             return
 
-        # file metadata handling
+        # Task - file metadata
+        # Logic: if more than one file iks passed, then tasks are distributed
+        # among active peers
         if task == "file_metadata":
             fp = request.get("file_path")
             if not fp:
@@ -83,7 +101,8 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
                     ).encode("utf-8")
                 )
                 return
-            # explicit log for file_metadata processing
+
+            # Log, which peer has processed the file
             logger.info(f"[PROC] Received file_metadata for '{fp}' from peer {sender}")
             res = get_file_metadata(fp)
             conn.sendall(
@@ -91,7 +110,6 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
             )
             return
 
-        # generic tasks
         tasks = TASKS.keys()
         if task in tasks:
             if task == "file_count":
@@ -126,6 +144,14 @@ def handle_rpc_request(conn, addr, peer_list, peer_list_lock, my_addr, auth_toke
 
 
 def peer_server(my_addr, peer_list, peer_list_lock, auth_token):
+    """
+    Method to start the server
+    :param my_addr:
+    :param peer_list:
+    :param peer_list_lock:
+    :param auth_token:
+    :return:
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(my_addr)

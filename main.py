@@ -1,6 +1,7 @@
 """
 Module Main.py
 """
+
 import logging
 import sys
 import threading
@@ -8,18 +9,24 @@ from config import AUTH_TOKEN
 from interface import user_interface
 from server import peer_server
 from client import register_with_peer, gossip_with_peers
-from threading import Lock
+
 
 peer_list = set()
-peer_list_lock = Lock()
+peer_list_lock = threading.Lock()
 SEED_PEERS = []
 
 logging.basicConfig(
-    level=logging.INFO,  # Change to DEBUG for verbose logs
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+
 def main():
+    """
+    Main function
+    :return:
+    """
     if len(sys.argv) < 2:
         print("Usage: python main.py <port> [known_peer_host:known_peer_port]")
         sys.exit(1)
@@ -51,7 +58,7 @@ def main():
     if bootstrap:
         register_with_peer(bootstrap, peer_list, peer_list_lock, my_addr, AUTH_TOKEN)
 
-    # Run CLI
+    # Start CLI
     user_interface(peer_list, peer_list_lock, my_addr, AUTH_TOKEN)
 
 
